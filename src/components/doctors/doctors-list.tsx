@@ -201,7 +201,7 @@ export function DoctorsList() {
           >
             {doctors.map((doctor, index) => (
               <motion.div key={doctor.id} variants={item}>
-                <DoctorCard doctor={doctor} />
+                <DoctorCard doctor={doctor} index={index} />
               </motion.div>
             ))}
           </motion.div>
