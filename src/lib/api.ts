@@ -1,11 +1,10 @@
 import axios from "axios"
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "healthcare-backend-production-e71d.up.railway.app"
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL
 
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: API_BASE_URL, // Now includes /api
   withCredentials: true,
-  timeout: 30000,
 })
 
 // Add request interceptor
