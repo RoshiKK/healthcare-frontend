@@ -10,10 +10,6 @@ export interface User {
   updatedAt?: string;
 }
 
-// Add this helper function to safely get user ID
-export const getUserId = (user: User): string => {
-  return user.id || user._id || '';
-}
 export interface Appointment {
   id: string;
   _id?: string;
@@ -83,4 +79,24 @@ export interface VoiceCommand {
   sessionId: string;
   audio: string;
   appointmentData: any;
+}
+
+// Helper function to safely get user ID
+export const getUserId = (user: User): string => {
+  return user.id || user._id || '';
+}
+
+// Helper function to create a safe user object
+export const createSafeUser = (user: any): User => {
+  return {
+    id: user.id || user._id?.toString() || '',
+    _id: user._id?.toString() || user.id || '',
+    name: user.name || '',
+    email: user.email || '',
+    role: user.role || 'patient',
+    specialization: user.specialization,
+    isActive: user.isActive ?? true,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt
+  };
 }

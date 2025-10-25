@@ -1,4 +1,3 @@
-// components/admin/doctor-management.tsx
 'use client'
 
 import { useState } from 'react'
@@ -8,7 +7,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useApi } from '@/hooks/use-api'
 import { User } from '@/types'
-import { Plus, Edit, Trash2, Loader2, X } from 'lucide-react'
+import { Plus, Edit, Trash2, Loader2, X, AlertCircle } from 'lucide-react'
 
 interface DoctorManagementProps {
   doctors: User[]
@@ -24,28 +23,110 @@ export function DoctorManagement({ doctors, onDoctorsUpdate }: DoctorManagementP
     password: '',
     specialization: ''
   })
+  const [error, setError] = useState<string>('')
   const { callApi, isLoading } = useApi()
+
+  const handleEdit = (doctor: User) => {
+    console.log('Editing doctor:', doctor);
+    
+    const doctorId = doctor.id;
+    if (!doctorId) {
+      console.error('Doctor has no ID:', doctor);
+      setError('Cannot edit doctor: No ID found');
+      return;
+    }
+    
+    setEditingDoctor(doctor);
+    setFormData({
+      name: doctor.name,
+      email: doctor.email,
+      password: '',
+      specialization: doctor.specialization || ''
+    });
+    setIsAdding(true);
+    setError('');
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setError('')
     
     try {
+      console.log('🔄 Submitting doctor data:', { 
+        editingDoctor, 
+        formData,
+        doctorId: editingDoctor?.id
+      });
+
+      // Validate form data
+      if (!formData.name.trim()) {
+        setError('Name is required')
+        return
+      }
+      
+      if (!formData.email.trim()) {
+        setError('Email is required')
+        return
+      }
+      
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+      if (!emailRegex.test(formData.email)) {
+        setError('Please enter a valid email address')
+        return
+      }
+
+      if (!formData.specialization.trim()) {
+        setError('Specialization is required')
+        return
+      }
+
+      // Validate password for new doctors
+      if (!editingDoctor && (!formData.password || formData.password.length < 6)) {
+        setError('Password must be at least 6 characters long for new doctors')
+        return
+      }
+
       if (editingDoctor) {
-        // For update, only send changed fields
+        const doctorId = editingDoctor.id;
+        if (!doctorId) {
+          setError('Doctor ID is missing. Please refresh and try again.');
+          return;
+        }
+        console.log('📝 Updating doctor with ID:', doctorId);
+
         const updateData: any = {}
         if (formData.name !== editingDoctor.name) updateData.name = formData.name
         if (formData.email !== editingDoctor.email) updateData.email = formData.email
-        if (formData.password) updateData.password = formData.password
+        if (formData.password && formData.password.length >= 6) updateData.password = formData.password
         if (formData.specialization !== editingDoctor.specialization) updateData.specialization = formData.specialization
         
         if (Object.keys(updateData).length > 0) {
-          await callApi('patch', `/admin/doctors/${editingDoctor.id}`, updateData)
+          console.log('🔄 Sending update request:', { doctorId, updateData });
+          await callApi('patch', `/admin/doctors/${doctorId}`, updateData)
+          alert('Doctor updated successfully!')
+        } else {
+          setError('No changes made')
+          return
         }
       } else {
+        // Check if email already exists in the current list
+        const emailExists = doctors.some(doctor => 
+          doctor.email.toLowerCase() === formData.email.toLowerCase()
+        );
+        
+        if (emailExists) {
+          setError('This email is already registered. Please use a different email.');
+          return;
+        }
+
         await callApi('post', '/admin/doctors', {
-          ...formData,
+          name: formData.name,
+          email: formData.email,
+          password: formData.password,
+          specialization: formData.specialization,
           role: 'doctor'
         })
+        alert('Doctor created successfully!')
       }
       
       // Reset form and refresh doctors list
@@ -53,44 +134,71 @@ export function DoctorManagement({ doctors, onDoctorsUpdate }: DoctorManagementP
       setEditingDoctor(null)
       setIsAdding(false)
       onDoctorsUpdate()
-    } catch (error: any) {
-      console.error('Error saving doctor:', error)
-      alert(error.response?.data?.message || 'Error saving doctor')
+    } catch (error: unknown) {
+      console.error('❌ Error saving doctor:', error)
+      
+      let errorMessage = 'Error saving doctor. Please try again.'
+      
+      if (error instanceof Error) {
+        // Show the actual error message from the backend
+        errorMessage = error.message;
+        
+        // Make user-friendly messages
+        if (error.message.includes('Email already in use')) {
+          errorMessage = 'This email address is already registered. Please use a different email.';
+        } else if (error.message.includes('Network Error') || error.message.includes('ECONNREFUSED')) {
+          errorMessage = 'Cannot connect to server. Please make sure the backend is running.';
+        } else if (error.message.includes('Invalid doctor ID') || error.message.includes('Cast to ObjectId')) {
+          errorMessage = 'Invalid doctor ID. Please refresh the page and try again.';
+        }
+      }
+      
+      setError(errorMessage)
     }
   }
 
-  const handleEdit = (doctor: User) => {
-    setEditingDoctor(doctor)
-    setFormData({
-      name: doctor.name,
-      email: doctor.email,
-      password: '',
-      specialization: doctor.specialization || ''
-    })
-    setIsAdding(true)
-  }
-
   const handleDelete = async (doctorId: string) => {
+    if (!doctorId) {
+      setError('Doctor ID is missing');
+      return;
+    }
+
     if (!confirm('Are you sure you want to delete this doctor? This action cannot be undone.')) return
     
     try {
       await callApi('delete', `/admin/doctors/${doctorId}`)
       onDoctorsUpdate()
-    } catch (error: any) {
+      alert('Doctor deleted successfully!')
+    } catch (error: unknown) {
       console.error('Error deleting doctor:', error)
-      alert(error.response?.data?.message || 'Error deleting doctor')
+      if (error instanceof Error) {
+        setError(error.message || 'Error deleting doctor')
+      } else {
+        setError('Error deleting doctor')
+      }
     }
   }
 
   const toggleStatus = async (doctor: User) => {
+    const doctorId = doctor.id;
+    if (!doctorId) {
+      setError('Doctor ID is missing');
+      return;
+    }
+
     try {
-      await callApi('patch', `/admin/doctors/${doctor.id}/status`, {
+      await callApi('patch', `/admin/doctors/${doctorId}/status`, {
         isActive: !doctor.isActive
       })
       onDoctorsUpdate()
-    } catch (error: any) {
+      alert(`Doctor ${!doctor.isActive ? 'activated' : 'deactivated'} successfully!`)
+    } catch (error: unknown) {
       console.error('Error updating doctor status:', error)
-      alert(error.response?.data?.message || 'Error updating doctor status')
+      if (error instanceof Error) {
+        setError(error.message || 'Error updating doctor status')
+      } else {
+        setError('Error updating doctor status')
+      }
     }
   }
 
@@ -98,6 +206,7 @@ export function DoctorManagement({ doctors, onDoctorsUpdate }: DoctorManagementP
     setFormData({ name: '', email: '', password: '', specialization: '' })
     setEditingDoctor(null)
     setIsAdding(false)
+    setError('')
   }
 
   if (!isAdding) {
@@ -114,52 +223,55 @@ export function DoctorManagement({ doctors, onDoctorsUpdate }: DoctorManagementP
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {doctors.map((doctor) => (
-              <div key={doctor.id} className="border rounded-lg p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-semibold">{doctor.name}</h3>
-                  <span className={`px-2 py-1 rounded-full text-xs ${
-                    doctor.isActive 
-                      ? 'bg-green-100 text-green-800' 
-                      : 'bg-red-100 text-red-800'
-                  }`}>
-                    {doctor.isActive ? 'Active' : 'Inactive'}
-                  </span>
+            {doctors.map((doctor) => {
+              const doctorId = doctor.id;
+              return (
+                <div key={doctorId} className="border rounded-lg p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold">{doctor.name}</h3>
+                    <span className={`px-2 py-1 rounded-full text-xs ${
+                      doctor.isActive 
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-red-100 text-red-800'
+                    }`}>
+                      {doctor.isActive ? 'Active' : 'Inactive'}
+                    </span>
+                  </div>
+                  <p className="text-sm text-muted-foreground">{doctor.email}</p>
+                  <p className="text-sm font-medium">{doctor.specialization}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Joined: {doctor.createdAt ? new Date(doctor.createdAt).toLocaleDateString() : 'N/A'}
+                  </p>
+                  
+                  <div className="flex space-x-2 pt-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleEdit(doctor)}
+                      className="flex-1"
+                    >
+                      <Edit className="h-3 w-3 mr-1" />
+                      Edit
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={doctor.isActive ? "outline" : "default"}
+                      onClick={() => toggleStatus(doctor)}
+                      className="flex-1"
+                    >
+                      {doctor.isActive ? 'Deactivate' : 'Activate'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => handleDelete(doctorId)}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
                 </div>
-                <p className="text-sm text-muted-foreground">{doctor.email}</p>
-                <p className="text-sm font-medium">{doctor.specialization}</p>
-                <p className="text-xs text-muted-foreground">
-                  Joined: {doctor.createdAt ? new Date(doctor.createdAt).toLocaleDateString() : 'N/A'}
-                </p>
-                
-                <div className="flex space-x-2 pt-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleEdit(doctor)}
-                    className="flex-1"
-                  >
-                    <Edit className="h-3 w-3 mr-1" />
-                    Edit
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={doctor.isActive ? "outline" : "default"}
-                    onClick={() => toggleStatus(doctor)}
-                    className="flex-1"
-                  >
-                    {doctor.isActive ? 'Deactivate' : 'Activate'}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={() => handleDelete(doctor.id)}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -181,6 +293,16 @@ export function DoctorManagement({ doctors, onDoctorsUpdate }: DoctorManagementP
           <X className="h-4 w-4" />
         </Button>
       </div>
+
+      {/* Error Display */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <AlertCircle className="h-5 w-5 text-red-600 mr-2" />
+            <p className="text-red-800 text-sm">{error}</p>
+          </div>
+        </div>
+      )}
       
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
@@ -188,7 +310,10 @@ export function DoctorManagement({ doctors, onDoctorsUpdate }: DoctorManagementP
           <Input
             id="name"
             value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            onChange={(e) => {
+              setFormData({ ...formData, name: e.target.value })
+              setError('')
+            }}
             placeholder="Dr. John Doe"
             required
           />
@@ -200,7 +325,10 @@ export function DoctorManagement({ doctors, onDoctorsUpdate }: DoctorManagementP
             id="email"
             type="email"
             value={formData.email}
-            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+            onChange={(e) => {
+              setFormData({ ...formData, email: e.target.value })
+              setError('')
+            }}
             placeholder="doctor@example.com"
             required
           />
@@ -215,7 +343,10 @@ export function DoctorManagement({ doctors, onDoctorsUpdate }: DoctorManagementP
           id="password"
           type="password"
           value={formData.password}
-          onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+          onChange={(e) => {
+            setFormData({ ...formData, password: e.target.value })
+            setError('')
+          }}
           placeholder="••••••••"
           required={!editingDoctor}
           minLength={6}
@@ -231,7 +362,10 @@ export function DoctorManagement({ doctors, onDoctorsUpdate }: DoctorManagementP
         <Label htmlFor="specialization">Specialization *</Label>
         <Select
           value={formData.specialization}
-          onValueChange={(value) => setFormData({ ...formData, specialization: value })}
+          onValueChange={(value) => {
+            setFormData({ ...formData, specialization: value })
+            setError('')
+          }}
           required
         >
           <SelectTrigger>
@@ -266,6 +400,16 @@ export function DoctorManagement({ doctors, onDoctorsUpdate }: DoctorManagementP
           Cancel
         </Button>
       </div>
+
+      {/* Help Text */}
+      {!editingDoctor && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <p className="text-sm text-blue-800">
+            <strong>Note:</strong> Each doctor must have a unique email address. 
+            If you see an "Email already in use" error, please use a different email.
+          </p>
+        </div>
+      )}
     </form>
   )
 }

@@ -14,32 +14,14 @@ export function Sidebar({ className }: SidebarProps) {
   const pathname = usePathname()
   const { user, logout } = useAuth()
 
+  // Updated navigation - removed Doctors link
   const navigation = [
     {
       title: 'Dashboard',
       href: user?.role === 'admin' ? '/admin' : '/doctor',
       icon: '📊',
     },
-    ...(user?.role === 'admin'
-      ? [
-          {
-            title: 'Doctors',
-            href: '/admin/doctors',
-            icon: '👨‍⚕️',
-          },
-        ]
-      : [
-          {
-            title: 'Appointments',
-            href: '/doctor/appointments',
-            icon: '📅',
-          },
-          {
-            title: 'Availability',
-            href: '/doctor/availability',
-            icon: '⏰',
-          },
-        ]),
+    // Removed Doctors link from here
   ]
 
   return (

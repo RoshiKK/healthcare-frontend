@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useApi } from '@/hooks/use-api'
-import { User, Appointment } from '@/types'
+import { User, Appointment, createSafeUser } from '@/types'
 import { formatDate } from '@/lib/utils'
 import {
   Users,
@@ -15,7 +15,8 @@ import {
   Clock,
   Search,
   Plus,
-  Filter
+  Filter,
+  Loader2
 } from 'lucide-react'
 import { DoctorManagement } from '@/components/admin/doctor-management'
 
@@ -27,6 +28,7 @@ interface AdminStats {
   topSpecializations: { _id: string; count: number }[]
 }
 
+// Make sure this export is present
 export function AdminDashboard() {
   const { callApi, isLoading } = useApi()
   const [stats, setStats] = useState<AdminStats | null>(null)
@@ -34,6 +36,7 @@ export function AdminDashboard() {
   const [searchTerm, setSearchTerm] = useState('')
   const [specializationFilter, setSpecializationFilter] = useState('')
   const [activeTab, setActiveTab] = useState<'stats' | 'doctors'>('stats')
+  const [loadingDoctors, setLoadingDoctors] = useState(false)
 
   useEffect(() => {
     loadStats()
@@ -44,29 +47,36 @@ export function AdminDashboard() {
     try {
       const statsData = await callApi('get', '/admin/stats')
       setStats(statsData)
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Failed to load stats:', error)
     }
   }
 
   const loadDoctors = async () => {
     try {
+      setLoadingDoctors(true)
       const doctorsData = await callApi('get', '/admin/doctors')
-      setDoctors(doctorsData.docs || doctorsData || [])
-    } catch (error) {
+      
+      let doctorsArray: any[] = [];
+      
+      if (Array.isArray(doctorsData)) {
+        doctorsArray = doctorsData;
+      } else if (doctorsData?.docs && Array.isArray(doctorsData.docs)) {
+        doctorsArray = doctorsData.docs;
+      } else if (doctorsData?.data && Array.isArray(doctorsData.data)) {
+        doctorsArray = doctorsData.data;
+      }
+      
+      const transformedDoctors: User[] = doctorsArray.map(doctor => 
+        createSafeUser(doctor)
+      );
+      
+      setDoctors(transformedDoctors);
+    } catch (error: unknown) {
       console.error('Failed to load doctors:', error)
-    }
-  }
-
-  const toggleDoctorStatus = async (doctorId: string, currentStatus: boolean) => {
-    try {
-      await callApi('patch', `/admin/doctors/${doctorId}/status`, {
-        isActive: !currentStatus
-      })
-      loadDoctors() // Reload doctors list
-      loadStats() // Reload stats
-    } catch (error) {
-      console.error('Failed to update doctor status:', error)
+      setDoctors([])
+    } finally {
+      setLoadingDoctors(false)
     }
   }
 
@@ -85,14 +95,14 @@ export function AdminDashboard() {
   if (isLoading && !stats) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600 mr-2" />
+        <span>Loading dashboard...</span>
       </div>
     )
   }
 
   return (
     <div className="space-y-6">
-      {/* Tab Navigation */}
       <div className="flex border-b border-gray-200">
         <button
           className={`py-3 px-6 font-medium text-sm ${activeTab === 'stats' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
@@ -110,7 +120,6 @@ export function AdminDashboard() {
 
       {activeTab === 'stats' ? (
         <>
-          {/* Stats Overview */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -161,7 +170,6 @@ export function AdminDashboard() {
             </Card>
           </div>
 
-          {/* Recent Appointments and Stats */}
           <div className="grid gap-4 md:grid-cols-2">
             <Card>
               <CardHeader>
@@ -220,7 +228,6 @@ export function AdminDashboard() {
             </Card>
           </div>
 
-          {/* Quick Doctors Overview */}
           <Card>
             <CardHeader>
               <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
@@ -251,32 +258,36 @@ export function AdminDashboard() {
               </div>
             </CardHeader>
             <CardContent>
-              {filteredDoctors.length > 0 ? (
+              {loadingDoctors ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-blue-600 mr-2" />
+                  <span>Loading doctors...</span>
+                </div>
+              ) : filteredDoctors.length > 0 ? (
                 <div className="border rounded-lg">
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
-                    {filteredDoctors.map((doctor) => (
-                      <div key={doctor.id} className="border rounded-lg p-4 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <h3 className="font-semibold">{doctor.name}</h3>
-                          <span className={`px-2 py-1 rounded-full text-xs ${
-                            doctor.isActive 
-                              ? 'bg-green-100 text-green-800' 
-                              : 'bg-red-100 text-red-800'
-                          }`}>
-                            {doctor.isActive ? 'Active' : 'Inactive'}
-                          </span>
+                    {filteredDoctors.map((doctor) => {
+                      const doctorId = doctor.id;
+                      return (
+                        <div key={doctorId} className="border rounded-lg p-4 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <h3 className="font-semibold">{doctor.name}</h3>
+                            <span className={`px-2 py-1 rounded-full text-xs ${
+                              doctor.isActive 
+                                ? 'bg-green-100 text-green-800' 
+                                : 'bg-red-100 text-red-800'
+                            }`}>
+                              {doctor.isActive ? 'Active' : 'Inactive'}
+                            </span>
+                          </div>
+                          <p className="text-sm text-muted-foreground">{doctor.email}</p>
+                          <p className="text-sm font-medium">{doctor.specialization}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Joined: {doctor.createdAt ? new Date(doctor.createdAt).toLocaleDateString() : 'N/A'}
+                          </p>
                         </div>
-                        <p className="text-sm text-muted-foreground">{doctor.email}</p>
-                        <p className="text-sm">{doctor.specialization}</p>
-                        <Button
-                          variant={doctor.isActive ? "destructive" : "default"}
-                          size="sm"
-                          onClick={() => toggleDoctorStatus(doctor.id, doctor.isActive!)}
-                        >
-                          {doctor.isActive ? 'Deactivate' : 'Activate'}
-                        </Button>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               ) : (
@@ -288,7 +299,6 @@ export function AdminDashboard() {
           </Card>
         </>
       ) : (
-        /* Doctors Management Tab */
         <Card>
           <CardHeader>
             <CardTitle>Doctors Management</CardTitle>
